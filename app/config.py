@@ -5,7 +5,9 @@ from pathlib import Path
 APP_NAME = "A-Gnt"
 APP_VERSION = "1.0.0"
 
-_BASE_DIR = Path.home() / ".agnt"
+# Dane aplikacji trzymamy obok pliku main.py (np. D:\A-Gnt\data\)
+_APP_ROOT = Path(__file__).parent.parent
+_BASE_DIR = _APP_ROOT / "data"
 _BASE_DIR.mkdir(exist_ok=True)
 
 DB_PATH = _BASE_DIR / "agnt.db"
