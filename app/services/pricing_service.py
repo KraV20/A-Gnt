@@ -31,6 +31,8 @@ _MODEL_FILE = _PRICING_DIR / "model.pkl"
 _META_FILE = _PRICING_DIR / "model_meta.json"
 _DATASETS_DIR = _PRICING_DIR / "datasets"
 _DATASETS_DIR.mkdir(exist_ok=True)
+_REPORTS_DIR = _PRICING_DIR / "reports"
+_REPORTS_DIR.mkdir(exist_ok=True)
 
 _BASE_PRICE_PER_M2 = 1200.0
 
@@ -607,3 +609,53 @@ def generate_sample_dataset(filename: str = "przykladowy_dataset.csv") -> Path:
     dest = _DATASETS_DIR / filename
     df.to_csv(dest, index=False)
     return dest
+
+
+def analyze_pdf_offers(source_paths: List[str]) -> Dict[str, object]:
+    converted: List[Dict[str, object]] = []
+    failed: List[Dict[str, str]] = []
+    dataset_names: List[str] = []
+
+    for source_path in source_paths:
+        pdf_path = Path(source_path)
+        dataset_name = f"{pdf_path.stem}_from_pdf.csv"
+        try:
+            out_path, rows = import_pdf_to_dataset(source_path, dataset_name)
+            converted.append(
+                {
+                    "source_pdf": pdf_path.name,
+                    "dataset": out_path.name,
+                    "rows": rows,
+                }
+            )
+            dataset_names.append(out_path.name)
+        except Exception as exc:
+            failed.append({"source_pdf": pdf_path.name, "error": str(exc)})
+
+    if not dataset_names:
+        raise ValueError("Nie udalo sie zbudowac datasetu z zadnego PDF.")
+
+    meta = train(dataset_names)
+    report = {
+        "pdf_files": len(source_paths),
+        "converted_count": len(converted),
+        "failed_count": len(failed),
+        "total_rows": sum(int(item["rows"]) for item in converted),
+        "converted": converted,
+        "failed": failed,
+        "model": meta,
+    }
+
+    report_path = _REPORTS_DIR / "last_pdf_offer_analysis.json"
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2, ensure_ascii=False)
+
+    return report
+
+
+def get_last_pdf_analysis_report() -> Optional[dict]:
+    report_path = _REPORTS_DIR / "last_pdf_offer_analysis.json"
+    if report_path.exists():
+        with open(report_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return None

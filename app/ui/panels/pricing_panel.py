@@ -33,6 +33,22 @@ class TrainWorker(QThread):
             self.error.emit(str(e))
 
 
+class PdfOfferAnalyzeWorker(QThread):
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, paths):
+        super().__init__()
+        self.paths = paths
+
+    def run(self):
+        try:
+            report = pricing_svc.analyze_pdf_offers(self.paths)
+            self.finished.emit(report)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class PricingPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -225,6 +241,11 @@ class PricingPanel(QWidget):
         pdf_btn.clicked.connect(self._upload_pdf_dataset)
         btn_row.addWidget(pdf_btn)
 
+        pdf_analyze_btn = QPushButton("Analizuj wyceny PDF i ucz model")
+        pdf_analyze_btn.setObjectName("successBtn")
+        pdf_analyze_btn.clicked.connect(self._analyze_pdf_offers)
+        btn_row.addWidget(pdf_analyze_btn)
+
         sample_btn = QPushButton("Generuj przykładowy dataset")
         sample_btn.setObjectName("secondaryBtn")
         sample_btn.clicked.connect(self._generate_sample)
@@ -311,6 +332,60 @@ class PricingPanel(QWidget):
             QMessageBox.warning(self, "Import PDF", msg)
         else:
             QMessageBox.information(self, "Import PDF", msg or "Brak danych do importu.")
+
+    def _analyze_pdf_offers(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Wybierz wyceny PDF do analizy", "", "PDF (*.pdf)"
+        )
+        if not paths:
+            return
+
+        self.train_btn.setEnabled(False)
+        self.progress.show()
+        self.train_log.clear()
+        self.train_log.append(f"Analizuje paczke PDF: {len(paths)} plikow")
+
+        self._pdf_worker = PdfOfferAnalyzeWorker(paths)
+        self._pdf_worker.finished.connect(self._on_pdf_analysis_done)
+        self._pdf_worker.error.connect(self._on_pdf_analysis_error)
+        self._pdf_worker.start()
+
+    def _on_pdf_analysis_done(self, report: dict):
+        self.train_btn.setEnabled(True)
+        self.progress.hide()
+
+        converted_count = report.get("converted_count", 0)
+        failed_count = report.get("failed_count", 0)
+        total_rows = report.get("total_rows", 0)
+        model = report.get("model", {})
+
+        self.train_log.append(
+            f"PDF przeanalizowane: {converted_count} udanych, {failed_count} blednych, {total_rows} rekordow"
+        )
+        self.train_log.append(
+            f"Model nauczony: R2 = {model.get('r2', 0):.4f} (+/- {model.get('r2_std', 0):.4f}), probek: {model.get('samples', 0)}"
+        )
+
+        if report.get("failed"):
+            failed_names = ", ".join(item.get("source_pdf", "?") for item in report["failed"][:5])
+            self.train_log.append(f"Nieudane PDF: {failed_names}")
+
+        self._refresh_datasets()
+        self._refresh_train_list()
+        self._refresh_model_status()
+        self._refresh_importances()
+
+        QMessageBox.information(
+            self,
+            "Analiza PDF",
+            f"Przeanalizowano {converted_count} PDF, zbudowano {total_rows} rekordow i wytrenowano model.",
+        )
+
+    def _on_pdf_analysis_error(self, error: str):
+        self.train_btn.setEnabled(True)
+        self.progress.hide()
+        self.train_log.append(f"Analiza PDF nieudana: {error}")
+        QMessageBox.critical(self, "Analiza PDF", error)
 
     def _generate_sample(self):
         dest = pricing_svc.generate_sample_dataset()

@@ -14,3 +14,5 @@ venv/
 data/config.json
 data/*.db-shm
 data/*.db-wal
+data/pricing/
+data/dokumenty/
