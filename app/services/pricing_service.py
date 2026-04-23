@@ -2,67 +2,122 @@
 Pricing service for smart-slide windows.
 
 Two modes:
-  1. Rule-based  – always available, uses parametric price table
-  2. ML-based    – available after training on uploaded dataset (scikit-learn RandomForest)
+  1. Rule-based - always available, uses parametric price table
+  2. ML-based   - available after training on uploaded dataset (RandomForest)
 """
 import json
 import pickle
+import random
 import re
+import unicodedata
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
+from typing import Dict, List, Optional, Tuple
 
 from app.config import _BASE_DIR
 from app.models.pricing import (
-    SmartSlideConfig, PriceResult,
-    CONFIGURATIONS, GLASS_TYPES, COLORS, THRESHOLDS, HARDWARE,
+    COLORS,
+    CONFIGURATIONS,
+    GLASS_TYPES,
+    HARDWARE,
+    THRESHOLDS,
+    PriceResult,
+    SmartSlideConfig,
 )
 
 _PRICING_DIR = _BASE_DIR / "pricing"
 _PRICING_DIR.mkdir(exist_ok=True)
 
 _MODEL_FILE = _PRICING_DIR / "model.pkl"
-_META_FILE  = _PRICING_DIR / "model_meta.json"
+_META_FILE = _PRICING_DIR / "model_meta.json"
 _DATASETS_DIR = _PRICING_DIR / "datasets"
 _DATASETS_DIR.mkdir(exist_ok=True)
 
-# ── Rule-based pricing ────────────────────────────────────────────────────────
-
-_BASE_PRICE_PER_M2 = 1200.0   # PLN netto za m²
+_BASE_PRICE_PER_M2 = 1200.0
 
 _GLASS_FACTORS = {
-    "float 4mm":            1.00,
-    "float 6mm":            1.10,
-    "2x float (zespolone)": 1.30,
-    "niskoemisyjne":        1.45,
-    "przeciwsłoneczne":     1.55,
-    "laminowane":           1.65,
-    "P2A bezpieczne":       1.80,
+    GLASS_TYPES[0]: 1.00,
+    GLASS_TYPES[1]: 1.10,
+    GLASS_TYPES[2]: 1.30,
+    GLASS_TYPES[3]: 1.45,
+    GLASS_TYPES[4]: 1.55,
+    GLASS_TYPES[5]: 1.65,
+    GLASS_TYPES[6]: 1.80,
 }
 _COLOR_SURCHARGE = {
-    "biały":      0,
-    "brązowy":    150,
-    "antracyt":   250,
-    "złoty dąb":  200,
-    "orzech":     200,
-    "czarny":     300,
-    "szary":      200,
+    COLORS[0]: 0,
+    COLORS[1]: 150,
+    COLORS[2]: 250,
+    COLORS[3]: 200,
+    COLORS[4]: 200,
+    COLORS[5]: 300,
+    COLORS[6]: 200,
 }
 _THRESHOLD_SURCHARGE = {
-    "standardowy":  0,
-    "niskoprogowy": 400,
-    "bezprogowy":   800,
+    THRESHOLDS[0]: 0,
+    THRESHOLDS[1]: 400,
+    THRESHOLDS[2]: 800,
 }
 _HARDWARE_SURCHARGE = {
-    "standard":    0,
-    "premium":     600,
-    "ekskluzywny": 1400,
+    HARDWARE[0]: 0,
+    HARDWARE[1]: 600,
+    HARDWARE[2]: 1400,
 }
 _CONFIG_FACTOR = {
-    "2-skrzydłowe": 1.00,
-    "3-skrzydłowe": 1.35,
-    "4-skrzydłowe": 1.65,
-    "kątowe 90°":   1.90,
+    CONFIGURATIONS[0]: 1.00,
+    CONFIGURATIONS[1]: 1.35,
+    CONFIGURATIONS[2]: 1.65,
+    CONFIGURATIONS[3]: 1.90,
 }
+
+REQUIRED_COLUMNS = {
+    "width_mm",
+    "height_mm",
+    "configuration",
+    "glass_type",
+    "color",
+    "threshold",
+    "hardware",
+    "mosquito_net",
+    "installation",
+    "price_net",
+}
+
+FEATURE_COLS = [
+    "width_mm",
+    "height_mm",
+    "area_m2",
+    "configuration",
+    "glass_type",
+    "color",
+    "threshold",
+    "hardware",
+    "mosquito_net",
+    "installation",
+]
+
+
+def _normalize_text(value: str) -> str:
+    ascii_text = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", ascii_text.lower()).strip()
+
+
+def _parse_decimal(value: str) -> float:
+    cleaned = str(value).strip().replace(" ", "").replace("\u00a0", "")
+    if not cleaned:
+        return 0.0
+    if "," in cleaned and "." in cleaned:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            cleaned = cleaned.replace(".", "").replace(",", ".")
+        else:
+            cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        cleaned = cleaned.replace(",", ".")
+    return float(cleaned)
+
+
+def _parse_bool(value: str) -> int:
+    normalized = _normalize_text(value)
+    return 1 if normalized in {"1", "tak", "true", "yes", "y", "t"} else 0
 
 
 def calculate_rules(cfg: SmartSlideConfig) -> PriceResult:
@@ -83,17 +138,15 @@ def calculate_rules(cfg: SmartSlideConfig) -> PriceResult:
         net_price=round(net, 2),
         source="rules",
         breakdown={
-            "Podstawa (powierzchnia × stawka × szkło × konfiguracja)": round(base * cfg.quantity, 2),
-            "Kolor":       color_s * cfg.quantity,
-            "Próg":        threshold_s * cfg.quantity,
-            "Okucia":      hardware_s * cfg.quantity,
-            "Siatka":      mosquito_s * cfg.quantity,
-            "Montaż":      install_s,
+            "Podstawa": round(base * cfg.quantity, 2),
+            "Kolor": color_s * cfg.quantity,
+            "Prog": threshold_s * cfg.quantity,
+            "Okucia": hardware_s * cfg.quantity,
+            "Siatka": mosquito_s * cfg.quantity,
+            "Montaz": install_s,
         },
     )
 
-
-# ── ML model ─────────────────────────────────────────────────────────────────
 
 def _load_model() -> Tuple[Optional[object], Optional[dict]]:
     if _MODEL_FILE.exists() and _META_FILE.exists():
@@ -109,16 +162,18 @@ def calculate_ml(cfg: SmartSlideConfig) -> Optional[PriceResult]:
     model, meta = _load_model()
     if model is None:
         return None
+
     import pandas as pd
+
     features = cfg.to_feature_dict()
     X = pd.DataFrame([features])
     pred = model.predict(X)[0]
     r2 = meta.get("r2", 0)
-    confidence = "wysoka" if r2 > 0.90 else "średnia" if r2 > 0.75 else "niska"
+    confidence = "wysoka" if r2 > 0.90 else "srednia" if r2 > 0.75 else "niska"
     return PriceResult(
         net_price=round(float(pred) * cfg.quantity, 2),
         source="ml",
-        ml_confidence=f"{confidence} (R²={r2:.3f}, próbek: {meta.get('samples', '?')})",
+        ml_confidence=f"{confidence} (R2={r2:.3f}, probek: {meta.get('samples', '?')})",
         breakdown={"Predykcja modelu ML (netto za szt.)": round(float(pred), 2)},
     )
 
@@ -131,26 +186,227 @@ def calculate(cfg: SmartSlideConfig, prefer_ml: bool = True) -> PriceResult:
     return calculate_rules(cfg)
 
 
-# ── Dataset management ────────────────────────────────────────────────────────
-
 def list_datasets() -> List[Path]:
     return sorted(_DATASETS_DIR.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def save_dataset(source_path: str, filename: str) -> Path:
     import shutil
+
     dest = _DATASETS_DIR / filename
     shutil.copy2(source_path, dest)
     return dest
 
 
+def _build_pdf_choice_aliases() -> Dict[str, Dict[str, List[str]]]:
+    return {
+        "configuration": {
+            CONFIGURATIONS[0]: ["2-skrzydl", "2 skrzydl", "dwuskrzydl", "2 kwat"],
+            CONFIGURATIONS[1]: ["3-skrzydl", "3 skrzydl", "trzyskrzydl", "3 kwat"],
+            CONFIGURATIONS[2]: ["4-skrzydl", "4 skrzydl", "czteroskrzydl", "4 kwat"],
+            CONFIGURATIONS[3]: ["katowe 90", "kat 90", "narozne 90", "corner 90"],
+        },
+        "glass_type": {
+            GLASS_TYPES[0]: ["float 4", "4mm", "4 mm"],
+            GLASS_TYPES[1]: ["float 6", "6mm", "6 mm"],
+            GLASS_TYPES[2]: ["zespol", "2x float", "pakiet 2-szyb", "2 szyb"],
+            GLASS_TYPES[3]: ["niskoem", "low-e"],
+            GLASS_TYPES[4]: ["przeciwslon", "solar"],
+            GLASS_TYPES[5]: ["lamin"],
+            GLASS_TYPES[6]: ["p2a", "bezpiecz"],
+        },
+        "color": {
+            COLORS[0]: ["bial", "white"],
+            COLORS[1]: ["braz"],
+            COLORS[2]: ["antracyt", "anthracite"],
+            COLORS[3]: ["zloty dab", "zloty"],
+            COLORS[4]: ["orzech", "walnut"],
+            COLORS[5]: ["czarn", "black"],
+            COLORS[6]: ["szary", "grey", "gray"],
+        },
+        "threshold": {
+            THRESHOLDS[0]: ["standard"],
+            THRESHOLDS[1]: ["niskoprog"],
+            THRESHOLDS[2]: ["bezprog"],
+        },
+        "hardware": {
+            HARDWARE[0]: ["standard"],
+            HARDWARE[1]: ["premium"],
+            HARDWARE[2]: ["ekskluzy", "exclusive"],
+        },
+    }
+
+
+def _detect_choice(text: str, field: str, default: str, aliases: Dict[str, Dict[str, List[str]]]) -> str:
+    normalized = _normalize_text(text)
+    for value, hints in aliases[field].items():
+        if any(hint in normalized for hint in hints):
+            return value
+    return default
+
+
+def _detect_flag(text: str, positive_aliases: List[str], negative_aliases: List[str], default: int) -> int:
+    normalized = _normalize_text(text)
+    if any(alias in normalized for alias in negative_aliases):
+        return 0
+    if any(alias in normalized for alias in positive_aliases):
+        return 1
+    return default
+
+
+def _normalize_pdf_header(value: str, header_map: Dict[str, set]) -> Optional[str]:
+    normalized = re.sub(r"[^a-z0-9_]", "", _normalize_text(value).replace(" ", "_"))
+    for target, aliases in header_map.items():
+        normalized_aliases = {re.sub(r"[^a-z0-9_]", "", _normalize_text(alias).replace(" ", "_")) for alias in aliases}
+        if normalized in normalized_aliases:
+            return target
+    return None
+
+
+def _parse_pdf_table_rows(
+    lines: List[str],
+    header_map: Dict[str, set],
+) -> List[Dict[str, object]]:
+    rows: List[Dict[str, object]] = []
+    header_idx = None
+    normalized_headers: List[str] = []
+
+    for i, line in enumerate(lines):
+        parts = [part.strip() for part in re.split(r"[;\t]| {2,}", line) if part.strip()]
+        if len(parts) < 6:
+            continue
+        candidate = [_normalize_pdf_header(part, header_map) for part in parts]
+        if sum(1 for col in candidate if col in REQUIRED_COLUMNS) >= 5:
+            header_idx = i
+            normalized_headers = [col or "" for col in candidate]
+            break
+
+    if header_idx is None:
+        return rows
+
+    for line in lines[header_idx + 1:]:
+        parts = [part.strip() for part in re.split(r"[;\t]| {2,}", line) if part.strip()]
+        if len(parts) < 6:
+            continue
+        record = {}
+        for idx, value in enumerate(parts):
+            if idx >= len(normalized_headers):
+                continue
+            col = normalized_headers[idx]
+            if col:
+                record[col] = value
+        if not record:
+            continue
+        try:
+            row = {
+                "width_mm": int(_parse_decimal(record.get("width_mm", "0"))),
+                "height_mm": int(_parse_decimal(record.get("height_mm", "0"))),
+                "configuration": record.get("configuration", CONFIGURATIONS[0]),
+                "glass_type": record.get("glass_type", GLASS_TYPES[0]),
+                "color": record.get("color", COLORS[0]),
+                "threshold": record.get("threshold", THRESHOLDS[0]),
+                "hardware": record.get("hardware", HARDWARE[0]),
+                "mosquito_net": _parse_bool(str(record.get("mosquito_net", "0"))),
+                "installation": _parse_bool(str(record.get("installation", "0"))),
+                "price_net": _parse_decimal(record.get("price_net", "0")),
+            }
+        except ValueError:
+            continue
+        if row["width_mm"] > 0 and row["height_mm"] > 0 and row["price_net"] > 0:
+            rows.append(row)
+    return rows
+
+
+def _parse_pdf_fallback_rows(lines: List[str], raw_text: str) -> List[Dict[str, object]]:
+    aliases = _build_pdf_choice_aliases()
+    context = {
+        "configuration": _detect_choice(raw_text, "configuration", CONFIGURATIONS[0], aliases),
+        "glass_type": _detect_choice(raw_text, "glass_type", GLASS_TYPES[0], aliases),
+        "color": _detect_choice(raw_text, "color", COLORS[0], aliases),
+        "threshold": _detect_choice(raw_text, "threshold", THRESHOLDS[0], aliases),
+        "hardware": _detect_choice(raw_text, "hardware", HARDWARE[0], aliases),
+        "mosquito_net": _detect_flag(raw_text, ["siatka", "moskit"], ["bez siatki", "bez moskitiery"], 0),
+        "installation": _detect_flag(raw_text, ["montaz"], ["bez montazu"], 0),
+    }
+
+    def update_context(text: str) -> None:
+        for field, default in [
+            ("configuration", CONFIGURATIONS[0]),
+            ("glass_type", GLASS_TYPES[0]),
+            ("color", COLORS[0]),
+            ("threshold", THRESHOLDS[0]),
+            ("hardware", HARDWARE[0]),
+        ]:
+            context[field] = _detect_choice(text, field, str(context.get(field, default)), aliases)
+        context["mosquito_net"] = _detect_flag(
+            text, ["siatka", "moskit"], ["bez siatki", "bez moskitiery"], int(context.get("mosquito_net", 0))
+        )
+        context["installation"] = _detect_flag(
+            text, ["montaz"], ["bez montazu"], int(context.get("installation", 0))
+        )
+
+    rows: List[Dict[str, object]] = []
+    seen = set()
+
+    for line in lines:
+        update_context(line)
+        normalized = _normalize_text(line)
+        if len(re.findall(r"\d", normalized)) < 5:
+            continue
+
+        size_match = re.search(r"(?P<w>\d{3,4})\s*[x×]\s*(?P<h>\d{3,4})", normalized)
+        if size_match:
+            width_mm = int(size_match.group("w"))
+            height_mm = int(size_match.group("h"))
+        else:
+            dim_candidates = [int(match.group(0)) for match in re.finditer(r"\b\d{3,4}\b", normalized)]
+            valid_dims = [n for n in dim_candidates if 600 <= n <= 8000]
+            if len(valid_dims) < 2:
+                continue
+            width_mm, height_mm = valid_dims[0], valid_dims[1]
+
+        price_candidates: List[float] = []
+        for match in re.finditer(r"\d[\d\s]*[,.]?\d*", normalized):
+            raw = match.group(0).strip()
+            if not raw:
+                continue
+            try:
+                value = _parse_decimal(raw)
+            except ValueError:
+                continue
+            if value > 100 and int(round(value)) not in {width_mm, height_mm}:
+                price_candidates.append(value)
+
+        if not price_candidates:
+            continue
+
+        row = {
+            "width_mm": width_mm,
+            "height_mm": height_mm,
+            "configuration": str(context["configuration"]),
+            "glass_type": str(context["glass_type"]),
+            "color": str(context["color"]),
+            "threshold": str(context["threshold"]),
+            "hardware": str(context["hardware"]),
+            "mosquito_net": int(context["mosquito_net"]),
+            "installation": int(context["installation"]),
+            "price_net": float(price_candidates[-1]),
+        }
+        key = (row["width_mm"], row["height_mm"], round(float(row["price_net"]), 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(row)
+
+    return rows
+
+
 def import_pdf_to_dataset(source_path: str, filename: Optional[str] = None) -> Tuple[Path, int]:
     """
-    Parses a PDF price list/offer and converts recognized rows to dataset CSV.
-    Expected columns (header aliases are supported):
-      width_mm, height_mm, configuration, glass_type, color, threshold,
-      hardware, mosquito_net, installation, price_net
-    Returns: (created_csv_path, parsed_rows_count)
+    Parse a PDF price list/offer and convert recognized rows to dataset CSV.
+
+    The parser first tries a header-based table extraction and then falls back
+    to line parsing for PDFs that contain rows like "2000 x 2200 ... 7999,00".
     """
     import pandas as pd
     from pypdf import PdfReader
@@ -166,90 +422,39 @@ def import_pdf_to_dataset(source_path: str, filename: Optional[str] = None) -> T
     for page in reader.pages:
         text_parts.append(page.extract_text() or "")
     raw_text = "\n".join(text_parts)
-    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
 
     header_map = {
-        "width_mm": {"width_mm", "width", "szerokość", "szerokosc", "szer_mm", "w"},
-        "height_mm": {"height_mm", "height", "wysokość", "wysokosc", "h", "wys_mm"},
-        "configuration": {"configuration", "konfiguracja", "układ", "uklad"},
-        "glass_type": {"glass_type", "szkło", "szklo", "pakiet"},
+        "width_mm": {"width_mm", "width", "szerokosc", "szer_mm", "w"},
+        "height_mm": {"height_mm", "height", "wysokosc", "h", "wys_mm"},
+        "configuration": {"configuration", "konfiguracja", "uklad"},
+        "glass_type": {"glass_type", "szklo", "pakiet"},
         "color": {"color", "kolor"},
-        "threshold": {"threshold", "próg", "prog"},
+        "threshold": {"threshold", "prog"},
         "hardware": {"hardware", "okucia"},
         "mosquito_net": {"mosquito_net", "mosquito", "siatka"},
-        "installation": {"installation", "montaż", "montaz"},
+        "installation": {"installation", "montaz"},
         "price_net": {"price_net", "cena_netto", "netto", "cena", "price"},
     }
     required = [
-        "width_mm", "height_mm", "configuration", "glass_type",
-        "color", "threshold", "hardware", "mosquito_net",
-        "installation", "price_net",
+        "width_mm",
+        "height_mm",
+        "configuration",
+        "glass_type",
+        "color",
+        "threshold",
+        "hardware",
+        "mosquito_net",
+        "installation",
+        "price_net",
     ]
 
-    def normalize_col(v: str) -> Optional[str]:
-        x = re.sub(r"[^a-z0-9_ąćęłńóśźż]", "", v.lower().replace(" ", "_"))
-        for target, aliases in header_map.items():
-            if x in {re.sub(r"[^a-z0-9_ąćęłńóśźż]", "", a.lower()) for a in aliases}:
-                return target
-        return None
-
-    def parse_bool(v: str) -> int:
-        val = v.strip().lower()
-        return 1 if val in {"1", "tak", "true", "yes", "y", "t"} else 0
-
-    rows = []
-    header_idx = None
-    normalized_headers: List[str] = []
-
-    for i, line in enumerate(lines):
-        parts = [p.strip() for p in re.split(r"[;,\t]| {2,}", line) if p.strip()]
-        if len(parts) < 6:
-            continue
-        candidate = [normalize_col(p) for p in parts]
-        if sum(1 for c in candidate if c in REQUIRED_COLUMNS) >= 5:
-            header_idx = i
-            normalized_headers = [c or "" for c in candidate]
-            break
-
-    if header_idx is not None:
-        for line in lines[header_idx + 1:]:
-            parts = [p.strip() for p in re.split(r"[;,\t]| {2,}", line) if p.strip()]
-            if len(parts) < 6:
-                continue
-            rec = {}
-            for idx, value in enumerate(parts):
-                if idx >= len(normalized_headers):
-                    continue
-                col = normalized_headers[idx]
-                if not col:
-                    continue
-                rec[col] = value
-            if not rec:
-                continue
-            try:
-                row = {
-                    "width_mm": int(float(str(rec.get("width_mm", "0")).replace(",", "."))),
-                    "height_mm": int(float(str(rec.get("height_mm", "0")).replace(",", "."))),
-                    "configuration": rec.get("configuration", CONFIGURATIONS[0]),
-                    "glass_type": rec.get("glass_type", GLASS_TYPES[0]),
-                    "color": rec.get("color", COLORS[0]),
-                    "threshold": rec.get("threshold", THRESHOLDS[0]),
-                    "hardware": rec.get("hardware", HARDWARE[0]),
-                    "mosquito_net": parse_bool(str(rec.get("mosquito_net", "0"))),
-                    "installation": parse_bool(str(rec.get("installation", "0"))),
-                    "price_net": float(str(rec.get("price_net", "0")).replace(" ", "").replace(",", ".")),
-                }
-            except ValueError:
-                continue
-            if row["width_mm"] > 0 and row["height_mm"] > 0 and row["price_net"] > 0:
-                rows.append(row)
+    rows = _parse_pdf_table_rows(lines, header_map)
+    if not rows:
+        rows = _parse_pdf_fallback_rows(lines, raw_text)
 
     if not rows:
-        raise ValueError(
-            "Nie udało się odczytać rekordów z PDF. Użyj tabeli z nagłówkami "
-            "np. width_mm;height_mm;configuration;glass_type;color;threshold;"
-            "hardware;mosquito_net;installation;price_net."
-        )
+        raise ValueError("Nie udalo sie odczytac rekordow z PDF. Sprobuj PDF z czytelna tabela lub CSV/XLSX.")
 
     df = pd.DataFrame(rows, columns=required)
     df.to_csv(out_path, index=False, encoding="utf-8")
@@ -263,47 +468,35 @@ def delete_dataset(filename: str) -> None:
 
 
 def load_dataset_preview(filename: str, rows: int = 10) -> Tuple[List[str], List[List]]:
-    """Returns (columns, rows) for preview."""
     import pandas as pd
+
     p = _DATASETS_DIR / filename
     df = pd.read_csv(p) if p.suffix == ".csv" else pd.read_excel(p)
     return list(df.columns), df.head(rows).values.tolist()
 
 
-# ── Model training ────────────────────────────────────────────────────────────
-
-REQUIRED_COLUMNS = {
-    "width_mm", "height_mm", "configuration", "glass_type",
-    "color", "threshold", "hardware", "mosquito_net", "installation", "price_net",
-}
-
-FEATURE_COLS = [
-    "width_mm", "height_mm", "area_m2",
-    "configuration", "glass_type", "color",
-    "threshold", "hardware", "mosquito_net", "installation",
-]
-
-
 def _encode_df(df):
     import pandas as pd
+
     df = df.copy()
     df["area_m2"] = (df["width_mm"] / 1000) * (df["height_mm"] / 1000)
 
     for col, lst in [
         ("configuration", CONFIGURATIONS),
-        ("glass_type",    GLASS_TYPES),
-        ("color",         COLORS),
-        ("threshold",     THRESHOLDS),
-        ("hardware",      HARDWARE),
+        ("glass_type", GLASS_TYPES),
+        ("color", COLORS),
+        ("threshold", THRESHOLDS),
+        ("hardware", HARDWARE),
     ]:
         if df[col].dtype == object:
-            mapping = {v: i for i, v in enumerate(lst)}
+            mapping = {value: index for index, value in enumerate(lst)}
             df[col] = df[col].map(mapping).fillna(0).astype(int)
 
     for col in ("mosquito_net", "installation"):
         if df[col].dtype == object:
-            df[col] = df[col].map({"tak": 1, "nie": 0, "true": 1, "false": 0,
-                                   "1": 1, "0": 0}).fillna(0).astype(int)
+            df[col] = df[col].map(
+                {"tak": 1, "nie": 0, "true": 1, "false": 0, "1": 1, "0": 0}
+            ).fillna(0).astype(int)
         else:
             df[col] = df[col].fillna(0).astype(int)
 
@@ -311,20 +504,18 @@ def _encode_df(df):
 
 
 def train(filenames: List[str]) -> Dict:
-    """Train RandomForest on selected datasets. Returns metrics dict."""
     import pandas as pd
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import cross_val_score
-    from sklearn.preprocessing import StandardScaler
 
     frames = []
     for fn in filenames:
         p = _DATASETS_DIR / fn
         df = pd.read_csv(p) if p.suffix == ".csv" else pd.read_excel(p)
-        df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+        df.columns = [col.strip().lower().replace(" ", "_") for col in df.columns]
         missing = REQUIRED_COLUMNS - set(df.columns)
         if missing:
-            raise ValueError(f"Plik '{fn}' brakuje kolumn: {', '.join(missing)}")
+            raise ValueError(f"Plik '{fn}' brakuje kolumn: {', '.join(sorted(missing))}")
         frames.append(df)
 
     data = pd.concat(frames, ignore_index=True).dropna(subset=["price_net"])
@@ -368,11 +559,9 @@ def delete_model() -> None:
 
 
 def generate_sample_dataset(filename: str = "przykladowy_dataset.csv") -> Path:
-    """Generate a sample CSV dataset for reference."""
     import pandas as pd
-    import random
-    random.seed(42)
 
+    random.seed(42)
     rows = []
     for _ in range(200):
         cfg = SmartSlideConfig(
@@ -388,7 +577,6 @@ def generate_sample_dataset(filename: str = "przykladowy_dataset.csv") -> Path:
             quantity=1,
         )
         result = calculate_rules(cfg)
-        # add ±8% noise
         noise = 1 + random.uniform(-0.08, 0.08)
         row = cfg.to_feature_dict()
         row["width_mm"] = cfg.width_mm
@@ -403,8 +591,18 @@ def generate_sample_dataset(filename: str = "przykladowy_dataset.csv") -> Path:
         row["price_net"] = round(result.net_price * noise, 2)
         rows.append(row)
 
-    cols = ["width_mm", "height_mm", "configuration", "glass_type", "color",
-            "threshold", "hardware", "mosquito_net", "installation", "price_net"]
+    cols = [
+        "width_mm",
+        "height_mm",
+        "configuration",
+        "glass_type",
+        "color",
+        "threshold",
+        "hardware",
+        "mosquito_net",
+        "installation",
+        "price_net",
+    ]
     df = pd.DataFrame(rows)[cols]
     dest = _DATASETS_DIR / filename
     df.to_csv(dest, index=False)
