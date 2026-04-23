@@ -11,3 +11,4 @@ build/
 venv/
 *.db
 *.log
+app/ui/dialogs/__pycache__/
