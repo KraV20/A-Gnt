@@ -8,11 +8,52 @@ import json
 import urllib.request
 import urllib.error
 from typing import List, Dict, Any, Optional
+from pathlib import Path
 import app.services.client_service as client_svc
 import app.services.order_service as order_svc
 import app.services.email_service as email_svc
+from app.config import _BASE_DIR
 
 PROVIDERS = ["Claude (Anthropic)", "Gemini (Google)", "OpenAI"]
+
+SOUL_FILE = _BASE_DIR / "soul.md"
+MEMORY_FILE = _BASE_DIR / "memory.md"
+CONTEXT_FILE = _BASE_DIR / "context.md"
+
+_SOUL_DEFAULT = """# Soul
+Jestem Marek – asystent biurowy firmy stolarki okiennej.
+Odpowiadam po polsku, zwięźle i rzeczowo. Nie wymyślam danych – używam narzędzi.
+"""
+_MEMORY_DEFAULT = "# Memory\n\n(brak zapisanych informacji)\n"
+_CONTEXT_DEFAULT = "# Context\n\nNazwa firmy: (uzupełnij)\nBranża: stolarka okienna\n"
+
+
+def _read_file(path: Path, default: str) -> str:
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    path.write_text(default, encoding="utf-8")
+    return default.strip()
+
+
+def _append_memory(text: str) -> None:
+    """Append a new memory entry to memory.md."""
+    content = _read_file(MEMORY_FILE, _MEMORY_DEFAULT)
+    updated = content + f"\n- {text.strip()}"
+    MEMORY_FILE.write_text(updated, encoding="utf-8")
+
+
+def get_agent_files() -> Dict[str, str]:
+    return {
+        "soul": _read_file(SOUL_FILE, _SOUL_DEFAULT),
+        "memory": _read_file(MEMORY_FILE, _MEMORY_DEFAULT),
+        "context": _read_file(CONTEXT_FILE, _CONTEXT_DEFAULT),
+    }
+
+
+def save_agent_file(name: str, content: str) -> None:
+    files = {"soul": SOUL_FILE, "memory": MEMORY_FILE, "context": CONTEXT_FILE}
+    if name in files:
+        files[name].write_text(content, encoding="utf-8")
 
 # ── Tool definitions ────────────────────────────────────────────────────────
 
@@ -100,12 +141,18 @@ def _run_tool(name: str, inputs: dict) -> str:
 
 
 def _system_prompt() -> str:
+    soul = _read_file(SOUL_FILE, _SOUL_DEFAULT)
+    memory = _read_file(MEMORY_FILE, _MEMORY_DEFAULT)
+    context = _read_file(CONTEXT_FILE, _CONTEXT_DEFAULT)
     return (
-        "Jesteś asystentem biurowym dla firmy zajmującej się produkcją okien i drzwi (WHOkna). "
-        "Pomagasz zarządzać klientami, zleceniami, dokumentami i skrzynką e-mail. "
+        f"{soul}\n\n"
+        f"---\n## Informacje o firmie\n{context}\n\n"
+        f"---\n## Twoja pamięć (zapamiętane informacje)\n{memory}\n\n"
+        "---\n"
         "Masz dostęp do bazy danych firmy przez narzędzia. "
-        "Odpowiadaj po polsku, zwięźle i rzeczowo. "
-        "Gdy pytają o dane – użyj odpowiedniego narzędzia zamiast zgadywać."
+        "Gdy pytają o dane – użyj odpowiedniego narzędzia zamiast zgadywać. "
+        "Jeśli w rozmowie pojawi się ważna informacja warta zapamiętania, "
+        "zakończ odpowiedź tagiem: <zapamiętaj>treść do zapamiętania</zapamiętaj>"
     )
 
 
@@ -256,6 +303,15 @@ def _chat_openai(api_key: str, messages: List[Dict], model: str = "gpt-4o-mini")
     return "Przekroczono limit wywołań narzędzi."
 
 
+def _extract_and_save_memory(response: str) -> str:
+    """Extract <zapamiętaj>...</zapamiętaj> tag, save to memory.md, return cleaned response."""
+    import re
+    matches = re.findall(r"<zapamiętaj>(.*?)</zapamiętaj>", response, re.DOTALL)
+    for match in matches:
+        _append_memory(match.strip())
+    return re.sub(r"<zapamiętaj>.*?</zapamiętaj>", "", response, flags=re.DOTALL).strip()
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def chat(cfg: dict, messages: List[Dict]) -> str:
@@ -272,11 +328,12 @@ def chat(cfg: dict, messages: List[Dict]) -> str:
 
     try:
         if "Claude" in provider:
-            return _chat_claude(api_key, messages, model or "claude-sonnet-4-6")
+            response = _chat_claude(api_key, messages, model or "claude-sonnet-4-6")
         elif "Gemini" in provider:
-            return _chat_gemini(api_key, messages, model or "gemini-2.0-flash")
+            response = _chat_gemini(api_key, messages, model or "gemini-2.0-flash")
         else:
-            return _chat_openai(api_key, messages, model or "gpt-4o-mini")
+            response = _chat_openai(api_key, messages, model or "gpt-4o-mini")
+        return _extract_and_save_memory(response)
     except RuntimeError as e:
         return f"Błąd API: {e}"
     except Exception as e:

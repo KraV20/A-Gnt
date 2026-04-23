@@ -1,9 +1,10 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTextEdit, QLineEdit, QScrollArea, QFrame, QSizePolicy,
+    QTabWidget, QSplitter, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont
 import app.services.ai_service as ai_svc
 
 
@@ -51,13 +52,29 @@ class AiPanel(QWidget):
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(0)
+
+        title = QLabel("AI Agent")
+        title.setObjectName("panelTitle")
+        title.setContentsMargins(0, 0, 0, 8)
+        layout.addWidget(title)
+
+        tabs = QTabWidget()
+        tabs.addTab(self._build_chat_tab(), "Czat")
+        tabs.addTab(self._build_files_tab("soul"), "Soul")
+        tabs.addTab(self._build_files_tab("memory"), "Memory")
+        tabs.addTab(self._build_files_tab("context"), "Context")
+        layout.addWidget(tabs)
+        return
+
+    def _build_chat_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(0, 8, 0, 0)
         layout.setSpacing(12)
 
         # Header
         header = QHBoxLayout()
-        title = QLabel("AI Agent")
-        title.setObjectName("panelTitle")
-        header.addWidget(title)
         header.addStretch()
 
         self.provider_label = QLabel("")
@@ -175,6 +192,41 @@ class AiPanel(QWidget):
             "Czat wyczyszczony. O co chcesz zapytać?",
             is_user=False,
         )
+
+    def _build_files_tab(self, name: str) -> QWidget:
+        labels = {"soul": "Soul – osobowość agenta", "memory": "Memory – pamięć agenta", "context": "Context – dane firmy"}
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(8)
+
+        info = QLabel(labels.get(name, name))
+        info.setStyleSheet("color:#6b7280;font-size:11px;")
+        layout.addWidget(info)
+
+        editor = QTextEdit()
+        editor.setPlaceholderText(f"Edytuj {name}.md...")
+        files = ai_svc.get_agent_files()
+        editor.setPlainText(files.get(name, ""))
+        editor.setFontFamily("Consolas, monospace")
+        layout.addWidget(editor)
+
+        btn_row = QHBoxLayout()
+        save_btn = QPushButton("Zapisz")
+        save_btn.clicked.connect(lambda: self._save_agent_file(name, editor))
+        btn_row.addWidget(save_btn)
+
+        reload_btn = QPushButton("Odśwież")
+        reload_btn.setObjectName("secondaryBtn")
+        reload_btn.clicked.connect(lambda: editor.setPlainText(ai_svc.get_agent_files().get(name, "")))
+        btn_row.addWidget(reload_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+        return w
+
+    def _save_agent_file(self, name: str, editor: QTextEdit):
+        ai_svc.save_agent_file(name, editor.toPlainText())
+        QMessageBox.information(self, "Zapisano", f"{name}.md zostało zapisane.\nAgent użyje go w następnej rozmowie.")
 
     def refresh(self, cfg: dict = None):
         if cfg:
