@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
 import app.config as cfg_module
+from app.config import APP_VERSION
 from app.ui.styles import MAIN_STYLE
 from app.ui.panels.email_panel import EmailPanel
 from app.ui.panels.clients_panel import ClientsPanel
@@ -21,7 +22,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._cfg = cfg_module.load()
-        self.setWindowTitle("A-Gnt – Zarządzanie klientami i zleceniami")
+        self.setWindowTitle("A-Gnt - Zarzadzanie klientami i zleceniami")
         self.setMinimumSize(1100, 700)
         self.resize(1280, 800)
         self.setStyleSheet(MAIN_STYLE)
@@ -35,7 +36,6 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Sidebar
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
         sidebar.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
         app_title.setObjectName("sidebarTitle")
         sidebar_layout.addWidget(app_title)
 
-        version_lbl = QLabel("v1.0.0  •  WHOkna Edition")
+        version_lbl = QLabel(f"v{APP_VERSION}  |  WHOkna Edition")
         version_lbl.setObjectName("sidebarVersion")
         sidebar_layout.addWidget(version_lbl)
 
@@ -92,7 +92,6 @@ class MainWindow(QMainWindow):
 
         root.addWidget(sidebar)
 
-        # Content area
         content = QWidget()
         content.setObjectName("contentArea")
         content_layout = QVBoxLayout(content)
@@ -122,10 +121,7 @@ class MainWindow(QMainWindow):
         content_layout.addWidget(self._stack)
         root.addWidget(content)
 
-        # Status bar
         self.statusBar().showMessage("Gotowy")
-
-        # Select first panel
         self._switch_panel("email")
 
     def _switch_panel(self, name: str):
@@ -174,4 +170,4 @@ class MainWindow(QMainWindow):
     def _on_whokna_sync(self):
         self._clients_panel.refresh()
         self._orders_panel.refresh()
-        self.statusBar().showMessage("Synchronizacja WHOkna zakończona.", 4000)
+        self.statusBar().showMessage("Synchronizacja WHOkna zakonczona.", 4000)

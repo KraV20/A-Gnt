@@ -139,6 +139,8 @@ class AiPanel(QWidget):
             is_user=False,
         )
 
+        return w
+
     def _update_provider_label(self):
         ai_cfg = self.cfg.get("ai", {})
         provider = ai_cfg.get("provider", "—")

@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 APP_NAME = "A-Gnt"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 # Dane aplikacji trzymamy obok pliku main.py (np. D:\A-Gnt\data\)
 _APP_ROOT = Path(__file__).parent.parent
