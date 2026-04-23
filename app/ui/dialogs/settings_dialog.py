@@ -119,8 +119,7 @@ class SettingsDialog(QDialog):
         self.ai_key.textChanged.connect(self._schedule_ai_models_refresh)
 
         self.ai_model = QComboBox()
-        self.ai_model.setEditable(True)
-        self.ai_model.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.ai_model.setEditable(False)
 
         self.ai_model_hint = QLabel("")
         self.ai_model_hint.setStyleSheet("color:#6b7280;font-size:11px;")
@@ -182,7 +181,10 @@ class SettingsDialog(QDialog):
         idx = self.ai_provider.findText(ac.get("provider", PROVIDERS[0]))
         self.ai_provider.setCurrentIndex(idx if idx >= 0 else 0)
         self.ai_key.setText(ac.get("api_key", ""))
-        self.ai_model.setCurrentText(ac.get("model", ""))
+        saved_model = ac.get("model", "")
+        if saved_model:
+            self.ai_model.addItem(saved_model)
+            self.ai_model.setCurrentText(saved_model)
         self._update_ai_model_hint()
         self._schedule_ai_models_refresh()
 

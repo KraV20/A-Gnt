@@ -11,3 +11,6 @@ build/
 venv/
 *.db
 *.log
+data/config.json
+data/*.db-shm
+data/*.db-wal
