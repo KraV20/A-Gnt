@@ -7,6 +7,7 @@ Two modes:
 """
 import json
 import pickle
+import re
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 
@@ -141,6 +142,118 @@ def save_dataset(source_path: str, filename: str) -> Path:
     dest = _DATASETS_DIR / filename
     shutil.copy2(source_path, dest)
     return dest
+
+
+def import_pdf_to_dataset(source_path: str, filename: Optional[str] = None) -> Tuple[Path, int]:
+    """
+    Parses a PDF price list/offer and converts recognized rows to dataset CSV.
+    Expected columns (header aliases are supported):
+      width_mm, height_mm, configuration, glass_type, color, threshold,
+      hardware, mosquito_net, installation, price_net
+    Returns: (created_csv_path, parsed_rows_count)
+    """
+    import pandas as pd
+    from pypdf import PdfReader
+
+    src = Path(source_path)
+    out_name = filename or f"{src.stem}_from_pdf.csv"
+    if not out_name.endswith(".csv"):
+        out_name = f"{Path(out_name).stem}.csv"
+    out_path = _DATASETS_DIR / out_name
+
+    text_parts: List[str] = []
+    reader = PdfReader(str(src))
+    for page in reader.pages:
+        text_parts.append(page.extract_text() or "")
+    raw_text = "\n".join(text_parts)
+    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+
+    header_map = {
+        "width_mm": {"width_mm", "width", "szerokość", "szerokosc", "szer_mm", "w"},
+        "height_mm": {"height_mm", "height", "wysokość", "wysokosc", "h", "wys_mm"},
+        "configuration": {"configuration", "konfiguracja", "układ", "uklad"},
+        "glass_type": {"glass_type", "szkło", "szklo", "pakiet"},
+        "color": {"color", "kolor"},
+        "threshold": {"threshold", "próg", "prog"},
+        "hardware": {"hardware", "okucia"},
+        "mosquito_net": {"mosquito_net", "mosquito", "siatka"},
+        "installation": {"installation", "montaż", "montaz"},
+        "price_net": {"price_net", "cena_netto", "netto", "cena", "price"},
+    }
+    required = [
+        "width_mm", "height_mm", "configuration", "glass_type",
+        "color", "threshold", "hardware", "mosquito_net",
+        "installation", "price_net",
+    ]
+
+    def normalize_col(v: str) -> Optional[str]:
+        x = re.sub(r"[^a-z0-9_ąćęłńóśźż]", "", v.lower().replace(" ", "_"))
+        for target, aliases in header_map.items():
+            if x in {re.sub(r"[^a-z0-9_ąćęłńóśźż]", "", a.lower()) for a in aliases}:
+                return target
+        return None
+
+    def parse_bool(v: str) -> int:
+        val = v.strip().lower()
+        return 1 if val in {"1", "tak", "true", "yes", "y", "t"} else 0
+
+    rows = []
+    header_idx = None
+    normalized_headers: List[str] = []
+
+    for i, line in enumerate(lines):
+        parts = [p.strip() for p in re.split(r"[;,\t]| {2,}", line) if p.strip()]
+        if len(parts) < 6:
+            continue
+        candidate = [normalize_col(p) for p in parts]
+        if sum(1 for c in candidate if c in REQUIRED_COLUMNS) >= 5:
+            header_idx = i
+            normalized_headers = [c or "" for c in candidate]
+            break
+
+    if header_idx is not None:
+        for line in lines[header_idx + 1:]:
+            parts = [p.strip() for p in re.split(r"[;,\t]| {2,}", line) if p.strip()]
+            if len(parts) < 6:
+                continue
+            rec = {}
+            for idx, value in enumerate(parts):
+                if idx >= len(normalized_headers):
+                    continue
+                col = normalized_headers[idx]
+                if not col:
+                    continue
+                rec[col] = value
+            if not rec:
+                continue
+            try:
+                row = {
+                    "width_mm": int(float(str(rec.get("width_mm", "0")).replace(",", "."))),
+                    "height_mm": int(float(str(rec.get("height_mm", "0")).replace(",", "."))),
+                    "configuration": rec.get("configuration", CONFIGURATIONS[0]),
+                    "glass_type": rec.get("glass_type", GLASS_TYPES[0]),
+                    "color": rec.get("color", COLORS[0]),
+                    "threshold": rec.get("threshold", THRESHOLDS[0]),
+                    "hardware": rec.get("hardware", HARDWARE[0]),
+                    "mosquito_net": parse_bool(str(rec.get("mosquito_net", "0"))),
+                    "installation": parse_bool(str(rec.get("installation", "0"))),
+                    "price_net": float(str(rec.get("price_net", "0")).replace(" ", "").replace(",", ".")),
+                }
+            except ValueError:
+                continue
+            if row["width_mm"] > 0 and row["height_mm"] > 0 and row["price_net"] > 0:
+                rows.append(row)
+
+    if not rows:
+        raise ValueError(
+            "Nie udało się odczytać rekordów z PDF. Użyj tabeli z nagłówkami "
+            "np. width_mm;height_mm;configuration;glass_type;color;threshold;"
+            "hardware;mosquito_net;installation;price_net."
+        )
+
+    df = pd.DataFrame(rows, columns=required)
+    df.to_csv(out_path, index=False, encoding="utf-8")
+    return out_path, len(df)
 
 
 def delete_dataset(filename: str) -> None:
