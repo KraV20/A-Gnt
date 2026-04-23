@@ -11,6 +11,7 @@ from app.ui.panels.clients_panel import ClientsPanel
 from app.ui.panels.orders_panel import OrdersPanel
 from app.ui.panels.documents_panel import DocumentsPanel
 from app.ui.panels.whokna_panel import WhoKnaPanel
+from app.ui.panels.ai_panel import AiPanel
 from app.ui.dialogs.settings_dialog import SettingsDialog
 import app.services.email_service as email_svc
 
@@ -62,6 +63,7 @@ class MainWindow(QMainWindow):
             ("  Zlecenia", "orders"),
             ("  Dokumenty", "documents"),
             ("  WHOkna", "whokna"),
+            ("  AI Agent", "ai"),
         ]
 
         for label, name in nav_items:
@@ -104,12 +106,14 @@ class MainWindow(QMainWindow):
         self._documents_panel = DocumentsPanel()
         self._whokna_panel = WhoKnaPanel(self._cfg)
         self._whokna_panel.sync_done.connect(self._on_whokna_sync)
+        self._ai_panel = AiPanel(self._cfg)
 
         self._stack.addWidget(self._email_panel)
         self._stack.addWidget(self._clients_panel)
         self._stack.addWidget(self._orders_panel)
         self._stack.addWidget(self._documents_panel)
         self._stack.addWidget(self._whokna_panel)
+        self._stack.addWidget(self._ai_panel)
 
         content_layout.addWidget(self._stack)
         root.addWidget(content)
@@ -127,6 +131,7 @@ class MainWindow(QMainWindow):
             "orders": (2, self._orders_panel),
             "documents": (3, self._documents_panel),
             "whokna": (4, self._whokna_panel),
+            "ai": (5, self._ai_panel),
         }
         if name not in panels:
             return
@@ -145,6 +150,7 @@ class MainWindow(QMainWindow):
             self._cfg = dlg.get_config()
             self._email_panel.cfg = self._cfg
             self._whokna_panel.refresh(self._cfg)
+            self._ai_panel.refresh(self._cfg)
             self.statusBar().showMessage("Ustawienia zapisane.", 3000)
 
     def _refresh_unread_badge(self):

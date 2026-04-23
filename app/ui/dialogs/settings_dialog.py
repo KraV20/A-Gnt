@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QCheckBox, QSpinBox, QComboBox, QPushButton,
     QDialogButtonBox, QGroupBox, QMessageBox,
 )
+from app.services.ai_service import PROVIDERS
 from PyQt6.QtCore import Qt
 import app.config as cfg_module
 import app.services.whokna_service as whokna_svc
@@ -104,6 +105,42 @@ class SettingsDialog(QDialog):
         wl.addRow("", test_wh_btn)
         tabs.addTab(wh_tab, "WHOkna")
 
+        # --- AI Agent tab ---
+        ai_tab = QWidget()
+        al = QFormLayout(ai_tab)
+
+        self.ai_provider = QComboBox()
+        for p in PROVIDERS:
+            self.ai_provider.addItem(p)
+        self.ai_provider.currentIndexChanged.connect(self._update_ai_model_hint)
+
+        self.ai_key = QLineEdit()
+        self.ai_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ai_key.setPlaceholderText("sk-... / AIza... / anthropic key")
+
+        self.ai_model = QLineEdit()
+        self.ai_model_hint = QLabel("")
+        self.ai_model_hint.setStyleSheet("color:#6b7280;font-size:11px;")
+
+        al.addRow("Provider:", self.ai_provider)
+        al.addRow("Klucz API:", self.ai_key)
+        al.addRow("Model (opcja):", self.ai_model)
+        al.addRow("", self.ai_model_hint)
+
+        ai_note = QLabel(
+            "Claude: claude-sonnet-4-6\n"
+            "Gemini: gemini-2.0-flash\n"
+            "OpenAI: gpt-4o-mini\n\n"
+            "Klucze API nie są wysyłane nigdzie poza wybranym providerem."
+        )
+        ai_note.setStyleSheet("color:#6b7280;font-size:11px;")
+        al.addRow("", ai_note)
+
+        test_ai_btn = QPushButton("Testuj połączenie AI")
+        test_ai_btn.clicked.connect(self._test_ai)
+        al.addRow("", test_ai_btn)
+        tabs.addTab(ai_tab, "AI Agent")
+
         layout.addWidget(tabs)
 
         btns = QDialogButtonBox(
@@ -124,6 +161,13 @@ class SettingsDialog(QDialog):
         self.email_pass.setText(ec.get("password", ""))
         self.email_folder.setText(ec.get("folder", "INBOX"))
         self.auto_fetch.setValue(ec.get("auto_fetch_minutes", 5))
+
+        ac = self._cfg.get("ai", {})
+        idx = self.ai_provider.findText(ac.get("provider", PROVIDERS[0]))
+        self.ai_provider.setCurrentIndex(idx if idx >= 0 else 0)
+        self.ai_key.setText(ac.get("api_key", ""))
+        self.ai_model.setText(ac.get("model", ""))
+        self._update_ai_model_hint()
 
         wc = self._cfg.get("whokna", {})
         self.wh_enabled.setChecked(wc.get("enabled", False))
@@ -157,6 +201,11 @@ class SettingsDialog(QDialog):
             "dsn": self.wh_dsn.text().strip(),
             "username": self.wh_user.text().strip(),
             "password": self.wh_pass.text(),
+        }
+        self._cfg["ai"] = {
+            "provider": self.ai_provider.currentText(),
+            "api_key": self.ai_key.text().strip(),
+            "model": self.ai_model.text().strip(),
         }
         cfg_module.save(self._cfg)
         self.accept()
@@ -197,6 +246,31 @@ class SettingsDialog(QDialog):
             QMessageBox.information(self, "WHOkna", f"Połączono pomyślnie!\n{msg}")
         else:
             QMessageBox.critical(self, "Błąd WHOkna", msg)
+
+    def _update_ai_model_hint(self):
+        provider = self.ai_provider.currentText()
+        hints = {
+            "Claude (Anthropic)": "domyślnie: claude-sonnet-4-6",
+            "Gemini (Google)": "domyślnie: gemini-2.0-flash",
+            "OpenAI": "domyślnie: gpt-4o-mini",
+        }
+        self.ai_model_hint.setText(hints.get(provider, ""))
+
+    def _test_ai(self):
+        import app.services.ai_service as ai_svc
+        cfg = {
+            "provider": self.ai_provider.currentText(),
+            "api_key": self.ai_key.text().strip(),
+            "model": self.ai_model.text().strip(),
+        }
+        if not cfg["api_key"]:
+            QMessageBox.warning(self, "Błąd", "Wpisz klucz API.")
+            return
+        try:
+            resp = ai_svc.chat(cfg, [{"role": "user", "content": "Odpowiedz jednym słowem: cześć"}])
+            QMessageBox.information(self, "AI Agent", f"Połączono!\nOdpowiedź: {resp}")
+        except Exception as e:
+            QMessageBox.critical(self, "Błąd AI", str(e))
 
     def get_config(self) -> dict:
         return self._cfg
