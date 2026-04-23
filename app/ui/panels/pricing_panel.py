@@ -221,6 +221,10 @@ class PricingPanel(QWidget):
         upload_btn.clicked.connect(self._upload_dataset)
         btn_row.addWidget(upload_btn)
 
+        pdf_btn = QPushButton("+ Wgraj cennik PDF")
+        pdf_btn.clicked.connect(self._upload_pdf_dataset)
+        btn_row.addWidget(pdf_btn)
+
         sample_btn = QPushButton("Generuj przykładowy dataset")
         sample_btn.setObjectName("secondaryBtn")
         sample_btn.clicked.connect(self._generate_sample)
@@ -230,7 +234,8 @@ class PricingPanel(QWidget):
 
         info = QLabel(
             "Dataset musi zawierać kolumny: width_mm, height_mm, configuration, glass_type, "
-            "color, threshold, hardware, mosquito_net, installation, price_net"
+            "color, threshold, hardware, mosquito_net, installation, price_net.\n"
+            "Możesz też wgrać PDF z tabelą — system spróbuje automatycznie wyodrębnić rekordy."
         )
         info.setWordWrap(True)
         info.setStyleSheet("color:#6b7280;font-size:11px;")
@@ -277,6 +282,35 @@ class PricingPanel(QWidget):
             p = Path(path)
             pricing_svc.save_dataset(path, p.name)
         self._refresh_datasets()
+
+    def _upload_pdf_dataset(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Wybierz cennik PDF", "", "PDF (*.pdf)"
+        )
+        if not paths:
+            return
+        converted = []
+        failed = []
+        for path in paths:
+            p = Path(path)
+            try:
+                out, rows = pricing_svc.import_pdf_to_dataset(path, f"{p.stem}_from_pdf.csv")
+                converted.append(f"{out.name} ({rows} rekordów)")
+            except Exception as e:
+                failed.append(f"{p.name}: {e}")
+
+        self._refresh_datasets()
+        msg = ""
+        if converted:
+            msg += "Przekonwertowano:\n- " + "\n- ".join(converted)
+        if failed:
+            if msg:
+                msg += "\n\n"
+            msg += "Błędy:\n- " + "\n- ".join(failed)
+        if failed and not converted:
+            QMessageBox.warning(self, "Import PDF", msg)
+        else:
+            QMessageBox.information(self, "Import PDF", msg or "Brak danych do importu.")
 
     def _generate_sample(self):
         dest = pricing_svc.generate_sample_dataset()
