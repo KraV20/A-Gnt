@@ -12,6 +12,7 @@ from app.ui.panels.orders_panel import OrdersPanel
 from app.ui.panels.documents_panel import DocumentsPanel
 from app.ui.panels.whokna_panel import WhoKnaPanel
 from app.ui.panels.ai_panel import AiPanel
+from app.ui.panels.pricing_panel import PricingPanel
 from app.ui.dialogs.settings_dialog import SettingsDialog
 import app.services.email_service as email_svc
 
@@ -64,6 +65,7 @@ class MainWindow(QMainWindow):
             ("  Dokumenty", "documents"),
             ("  WHOkna", "whokna"),
             ("  AI Agent", "ai"),
+            ("  Kalkulator", "pricing"),
         ]
 
         for label, name in nav_items:
@@ -107,6 +109,7 @@ class MainWindow(QMainWindow):
         self._whokna_panel = WhoKnaPanel(self._cfg)
         self._whokna_panel.sync_done.connect(self._on_whokna_sync)
         self._ai_panel = AiPanel(self._cfg)
+        self._pricing_panel = PricingPanel()
 
         self._stack.addWidget(self._email_panel)
         self._stack.addWidget(self._clients_panel)
@@ -114,6 +117,7 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._documents_panel)
         self._stack.addWidget(self._whokna_panel)
         self._stack.addWidget(self._ai_panel)
+        self._stack.addWidget(self._pricing_panel)
 
         content_layout.addWidget(self._stack)
         root.addWidget(content)
@@ -132,6 +136,7 @@ class MainWindow(QMainWindow):
             "documents": (3, self._documents_panel),
             "whokna": (4, self._whokna_panel),
             "ai": (5, self._ai_panel),
+            "pricing": (6, self._pricing_panel),
         }
         if name not in panels:
             return
