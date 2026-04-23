@@ -167,6 +167,78 @@ def _http_post(url: str, headers: dict, body: dict) -> dict:
         raise RuntimeError(f"HTTP {e.code}: {error_body}")
 
 
+def _http_get(url: str, headers: Optional[dict] = None) -> dict:
+    req = urllib.request.Request(url, headers=headers or {}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        raise RuntimeError(f"HTTP {e.code}: {error_body}")
+
+
+def _list_claude_models(api_key: str) -> List[str]:
+    resp = _http_get(
+        "https://api.anthropic.com/v1/models",
+        {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+    )
+    return [item["id"] for item in resp.get("data", []) if item.get("id")]
+
+
+def _list_gemini_models(api_key: str) -> List[str]:
+    resp = _http_get(
+        f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    )
+    models = []
+    for item in resp.get("models", []):
+        methods = item.get("supportedGenerationMethods", [])
+        if methods and "generateContent" not in methods:
+            continue
+        model_id = item.get("baseModelId") or item.get("name", "").replace("models/", "")
+        if model_id:
+            models.append(model_id)
+    return models
+
+
+def _list_openai_models(api_key: str) -> List[str]:
+    resp = _http_get(
+        "https://api.openai.com/v1/models",
+        {"Authorization": f"Bearer {api_key}"},
+    )
+    allowed_prefixes = ("gpt-", "o", "chatgpt-")
+    blocked_prefixes = ("gpt-image-", "gpt-audio-", "gpt-realtime")
+    models = []
+    for item in resp.get("data", []):
+        model_id = item.get("id", "")
+        if not model_id:
+            continue
+        if blocked_prefixes and model_id.startswith(blocked_prefixes):
+            continue
+        if model_id.startswith(allowed_prefixes):
+            models.append(model_id)
+    return models
+
+
+def list_models(cfg: dict) -> List[str]:
+    provider = cfg.get("provider", "Claude (Anthropic)")
+    api_key = cfg.get("api_key", "").strip()
+    if not api_key:
+        return []
+
+    if "Claude" in provider:
+        models = _list_claude_models(api_key)
+    elif "Gemini" in provider:
+        models = _list_gemini_models(api_key)
+    else:
+        models = _list_openai_models(api_key)
+
+    # Preserve order while removing duplicates.
+    return list(dict.fromkeys(models))
+
+
 # ── Claude (Anthropic) ───────────────────────────────────────────────────────
 
 def _chat_claude(api_key: str, messages: List[Dict], model: str = "claude-sonnet-4-6") -> str:
