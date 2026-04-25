@@ -71,6 +71,23 @@ CREATE TABLE IF NOT EXISTS email_attachments (
     size_bytes  INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS calendar_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    title        TEXT NOT NULL,
+    description  TEXT,
+    event_date   TEXT NOT NULL,
+    event_time   TEXT,
+    duration_min INTEGER DEFAULT 60,
+    event_type   TEXT DEFAULT 'spotkanie',
+    location     TEXT,
+    client_id    INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    order_id     INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+    is_done      INTEGER DEFAULT 0,
+    reminder_min INTEGER DEFAULT 0,
+    created_at   TEXT DEFAULT (datetime('now','localtime')),
+    updated_at   TEXT DEFAULT (datetime('now','localtime'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_client ON orders(client_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_emails_client ON emails(client_id);
@@ -78,3 +95,6 @@ CREATE INDEX IF NOT EXISTS idx_emails_order ON emails(order_id);
 CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read);
 CREATE INDEX IF NOT EXISTS idx_documents_client ON documents(client_id);
 CREATE INDEX IF NOT EXISTS idx_documents_order ON documents(order_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_events(event_date);
+CREATE INDEX IF NOT EXISTS idx_calendar_client ON calendar_events(client_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_order ON calendar_events(order_id);

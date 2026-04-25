@@ -13,6 +13,7 @@ from app.ui.panels.documents_panel import DocumentsPanel
 from app.ui.panels.whokna_panel import WhoKnaPanel
 from app.ui.panels.ai_panel import AiPanel
 from app.ui.panels.pricing_panel import PricingPanel
+from app.ui.panels.calendar_panel import CalendarPanel
 from app.ui.dialogs.settings_dialog import SettingsDialog
 import app.services.email_service as email_svc
 
@@ -62,6 +63,7 @@ class MainWindow(QMainWindow):
             ("  Skrzynka", "email"),
             ("  Klienci", "clients"),
             ("  Zlecenia", "orders"),
+            ("  Kalendarz", "calendar"),
             ("  Dokumenty", "documents"),
             ("  WHOkna", "whokna"),
             ("  AI Agent", "ai"),
@@ -110,10 +112,12 @@ class MainWindow(QMainWindow):
         self._whokna_panel.sync_done.connect(self._on_whokna_sync)
         self._ai_panel = AiPanel(self._cfg)
         self._pricing_panel = PricingPanel()
+        self._calendar_panel = CalendarPanel()
 
         self._stack.addWidget(self._email_panel)
         self._stack.addWidget(self._clients_panel)
         self._stack.addWidget(self._orders_panel)
+        self._stack.addWidget(self._calendar_panel)
         self._stack.addWidget(self._documents_panel)
         self._stack.addWidget(self._whokna_panel)
         self._stack.addWidget(self._ai_panel)
@@ -130,13 +134,14 @@ class MainWindow(QMainWindow):
 
     def _switch_panel(self, name: str):
         panels = {
-            "email": (0, self._email_panel),
-            "clients": (1, self._clients_panel),
-            "orders": (2, self._orders_panel),
-            "documents": (3, self._documents_panel),
-            "whokna": (4, self._whokna_panel),
-            "ai": (5, self._ai_panel),
-            "pricing": (6, self._pricing_panel),
+            "email":     (0, self._email_panel),
+            "clients":   (1, self._clients_panel),
+            "orders":    (2, self._orders_panel),
+            "calendar":  (3, self._calendar_panel),
+            "documents": (4, self._documents_panel),
+            "whokna":    (5, self._whokna_panel),
+            "ai":        (6, self._ai_panel),
+            "pricing":   (7, self._pricing_panel),
         }
         if name not in panels:
             return
