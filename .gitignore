@@ -10,4 +10,11 @@ build/
 .venv/
 venv/
 *.db
+*.db-shm
+*.db-wal
 *.log
+data/version_info.json
+data/dokumenty/
+data/pricing/datasets/
+data/pricing/model.pkl
+data/pricing/model_meta.json

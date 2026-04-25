@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QIcon
 import app.config as cfg_module
+from app import version as app_version
 from app.ui.styles import MAIN_STYLE
 from app.ui.panels.email_panel import EmailPanel
 from app.ui.panels.clients_panel import ClientsPanel
@@ -48,8 +49,17 @@ class MainWindow(QMainWindow):
         app_title.setObjectName("sidebarTitle")
         sidebar_layout.addWidget(app_title)
 
-        version_lbl = QLabel("v1.0.0  •  WHOkna Edition")
+        info = app_version.get_info()
+        version_lbl = QLabel(
+            f"v{info.get('version', app_version.VERSION)}  •  "
+            f"build {info.get('build', 0)}  •  {app_version.EDITION}"
+        )
         version_lbl.setObjectName("sidebarVersion")
+        version_lbl.setToolTip(
+            f"Pierwszy start: {info.get('first_run','—')}\n"
+            f"Ostatni start: {info.get('last_run','—')}\n"
+            f"Liczba uruchomień: {info.get('build', 0)}"
+        )
         sidebar_layout.addWidget(version_lbl)
 
         sep = QFrame()
