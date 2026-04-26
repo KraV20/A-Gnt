@@ -95,6 +95,17 @@ CREATE INDEX IF NOT EXISTS idx_emails_order ON emails(order_id);
 CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read);
 CREATE INDEX IF NOT EXISTS idx_documents_client ON documents(client_id);
 CREATE INDEX IF NOT EXISTS idx_documents_order ON documents(order_id);
+CREATE TABLE IF NOT EXISTS order_checklist (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    step_key TEXT    NOT NULL,
+    is_done  INTEGER DEFAULT 0,
+    done_at  TEXT,
+    UNIQUE(order_id, step_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_checklist_order ON order_checklist(order_id);
+
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_events(event_date);
 CREATE INDEX IF NOT EXISTS idx_calendar_client ON calendar_events(client_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_order ON calendar_events(order_id);
