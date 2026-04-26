@@ -79,12 +79,14 @@ def get_progress(order_id: int, status: str) -> List[dict]:
 
 
 def toggle_step(order_id: int, step_key: str, is_done: bool) -> None:
-    done_at = datetime.now().strftime("%Y-%m-%d %H:%M") if is_done else None
+    done_at    = datetime.now().strftime("%Y-%m-%d %H:%M") if is_done else None
+    updated_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     get_conn().execute(
-        "INSERT INTO order_checklist (order_id, step_key, is_done, done_at) "
-        "VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(order_id, step_key) DO UPDATE SET is_done=excluded.is_done, done_at=excluded.done_at",
-        (order_id, step_key, int(is_done), done_at),
+        "INSERT INTO order_checklist (order_id, step_key, is_done, done_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(order_id, step_key) DO UPDATE SET "
+        "is_done=excluded.is_done, done_at=excluded.done_at, updated_at=excluded.updated_at",
+        (order_id, step_key, int(is_done), done_at, updated_at),
     )
     get_conn().commit()
 

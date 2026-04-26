@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
     QLabel, QStackedWidget, QStatusBar, QSizePolicy, QFrame,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 import app.config as cfg_module
 from app import version as app_version
@@ -17,6 +17,19 @@ from app.ui.panels.pricing_panel import PricingPanel
 from app.ui.panels.calendar_panel import CalendarPanel
 from app.ui.dialogs.settings_dialog import SettingsDialog
 import app.services.email_service as email_svc
+import app.services.sync_service as sync_svc
+
+
+class SyncWorker(QThread):
+    finished = pyqtSignal(int, int, str)
+
+    def __init__(self, cfg: dict):
+        super().__init__()
+        self.cfg = cfg
+
+    def run(self):
+        pulled, pushed, err = sync_svc.sync(self.cfg)
+        self.finished.emit(pulled, pushed, err)
 
 
 class MainWindow(QMainWindow):
@@ -27,8 +40,12 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1100, 700)
         self.resize(1280, 800)
         self.setStyleSheet(MAIN_STYLE)
+        self._sync_worker = None
+        self._sync_timer = QTimer(self)
+        self._sync_timer.timeout.connect(self._auto_sync)
         self._setup_ui()
         self._refresh_unread_badge()
+        self._setup_sync_timer()
 
     def _setup_ui(self):
         central = QWidget()
@@ -96,6 +113,17 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self._unread_label)
 
         sidebar_layout.addStretch()
+
+        self._sync_btn = QPushButton("  Synchronizuj")
+        self._sync_btn.setObjectName("navBtn")
+        self._sync_btn.clicked.connect(self._manual_sync)
+        sidebar_layout.addWidget(self._sync_btn)
+
+        self._sync_status = QLabel("")
+        self._sync_status.setObjectName("sidebarVersion")
+        self._sync_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._sync_status.setWordWrap(True)
+        sidebar_layout.addWidget(self._sync_status)
 
         settings_btn = QPushButton("  Ustawienia")
         settings_btn.setObjectName("navBtn")
@@ -172,6 +200,7 @@ class MainWindow(QMainWindow):
             self._email_panel.refresh()
             self._whokna_panel.refresh(self._cfg)
             self._ai_panel.refresh(self._cfg)
+            self._setup_sync_timer()
             self.statusBar().showMessage("Ustawienia zapisane.", 3000)
 
     def _refresh_unread_badge(self):
@@ -191,3 +220,57 @@ class MainWindow(QMainWindow):
         self._clients_panel.refresh()
         self._orders_panel.refresh()
         self.statusBar().showMessage("Synchronizacja WHOkna zakończona.", 4000)
+
+    # ── Internet sync ─────────────────────────────────────────────────────────
+
+    def _setup_sync_timer(self):
+        self._sync_timer.stop()
+        minutes = self._cfg.get("sync", {}).get("auto_sync_minutes", 0)
+        enabled = self._cfg.get("sync", {}).get("enabled", False)
+        sync_on = enabled and self._cfg.get("sync", {}).get("server_url", "")
+        self._sync_btn.setVisible(enabled)
+        self._sync_status.setVisible(enabled)
+        if sync_on and minutes > 0:
+            self._sync_timer.start(minutes * 60 * 1000)
+
+    def _manual_sync(self):
+        self._do_sync()
+
+    def _auto_sync(self):
+        self._do_sync()
+
+    def _do_sync(self):
+        if self._sync_worker and self._sync_worker.isRunning():
+            return
+        self._sync_btn.setEnabled(False)
+        self._sync_btn.setText("  Synchronizuję...")
+        self._sync_worker = SyncWorker(self._cfg)
+        self._sync_worker.finished.connect(self._on_sync_done)
+        self._sync_worker.start()
+
+    def _on_sync_done(self, pulled: int, pushed: int, err: str):
+        self._sync_btn.setEnabled(True)
+        self._sync_btn.setText("  Synchronizuj")
+        if err and err != "disabled":
+            self._sync_status.setText(f"Błąd:\n{err[:60]}")
+            self._sync_status.setStyleSheet(
+                "color:#ef4444;font-size:10px;padding:2px 4px;"
+            )
+            self.statusBar().showMessage(f"Sync błąd: {err}", 5000)
+        elif not err or err == "disabled":
+            from datetime import datetime
+            ts = datetime.now().strftime("%H:%M")
+            self._sync_status.setText(
+                f"Sync OK {ts}\n+{pulled} / -{pushed}"
+            )
+            self._sync_status.setStyleSheet(
+                "color:#16a34a;font-size:10px;padding:2px 4px;"
+            )
+            if pulled or pushed:
+                # Refresh all panels after sync
+                self._clients_panel.refresh()
+                self._orders_panel.refresh()
+                self._calendar_panel.refresh()
+                self.statusBar().showMessage(
+                    f"Sync OK – pobrano {pulled}, wysłano {pushed}.", 4000
+                )

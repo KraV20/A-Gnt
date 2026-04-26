@@ -16,6 +16,13 @@ DOCS_DIR.mkdir(exist_ok=True)
 CONFIG_FILE = _BASE_DIR / "config.json"
 
 _DEFAULTS = {
+    "sync": {
+        "enabled":            False,
+        "server_url":         "",
+        "api_key":            "",
+        "device_id":          "",
+        "auto_sync_minutes":  5,
+    },
     "email": {
         "imap_host": "",
         "imap_port": 993,

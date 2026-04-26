@@ -21,3 +21,37 @@ def init_db() -> None:
     with open(schema, "r", encoding="utf-8") as f:
         conn.executescript(f.read())
     conn.commit()
+    _migrate_sync()
+
+
+def _migrate_sync() -> None:
+    """Add sync columns to existing tables (idempotent)."""
+    conn = get_conn()
+    migrations = [
+        ("clients",         "sync_id",    "TEXT"),
+        ("clients",         "is_deleted", "INTEGER DEFAULT 0"),
+        ("orders",          "sync_id",    "TEXT"),
+        ("orders",          "is_deleted", "INTEGER DEFAULT 0"),
+        ("calendar_events", "sync_id",    "TEXT"),
+        ("calendar_events", "is_deleted", "INTEGER DEFAULT 0"),
+        ("order_checklist", "sync_id",    "TEXT"),
+        ("order_checklist", "updated_at", "TEXT"),
+        ("order_checklist", "is_deleted", "INTEGER DEFAULT 0"),
+        ("documents",       "sync_id",    "TEXT"),
+        ("documents",       "updated_at", "TEXT DEFAULT (datetime('now','localtime'))"),
+        ("documents",       "is_deleted", "INTEGER DEFAULT 0"),
+    ]
+    for table, col, dtype in migrations:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {dtype}")
+        except Exception:
+            pass  # column already exists
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sync_state (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    conn.commit()
+

@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  agnt-sync:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - API_KEY=${API_KEY:-zmien-to-haslo-produkcyjne}
+      - DB_PATH=/data/sync_server.db
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - sync_data:/data
+
+volumes:
+  sync_data:

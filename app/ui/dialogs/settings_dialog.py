@@ -7,6 +7,7 @@ from app.services.ai_service import PROVIDERS
 from PyQt6.QtCore import Qt
 import app.config as cfg_module
 import app.services.whokna_service as whokna_svc
+import app.services.sync_service as sync_svc
 
 
 class SettingsDialog(QDialog):
@@ -148,6 +149,55 @@ class SettingsDialog(QDialog):
         al.addRow("", test_ai_btn)
         tabs.addTab(ai_tab, "AI Agent")
 
+        # --- Synchronizacja tab ---
+        sync_tab = QWidget()
+        sl = QFormLayout(sync_tab)
+
+        self.sync_enabled = QCheckBox("Włącz synchronizację przez internet")
+        sl.addRow("", self.sync_enabled)
+
+        self.sync_url = QLineEdit()
+        self.sync_url.setPlaceholderText("http://twoj-serwer:8000")
+        sl.addRow("URL serwera:", self.sync_url)
+
+        self.sync_key = QLineEdit()
+        self.sync_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.sync_key.setPlaceholderText("Tajny klucz API (min. 20 znaków)")
+        self.sync_show_key = QCheckBox("Pokaż klucz")
+        self.sync_show_key.toggled.connect(
+            lambda c: self.sync_key.setEchoMode(
+                QLineEdit.EchoMode.Normal if c else QLineEdit.EchoMode.Password
+            )
+        )
+        sl.addRow("Klucz API:", self.sync_key)
+        sl.addRow("", self.sync_show_key)
+
+        self.sync_interval = QSpinBox()
+        self.sync_interval.setRange(0, 60)
+        self.sync_interval.setSuffix(" min")
+        self.sync_interval.setSpecialValueText("ręcznie")
+        sl.addRow("Auto-sync co:", self.sync_interval)
+
+        self.sync_device_id = QLineEdit()
+        self.sync_device_id.setReadOnly(True)
+        self.sync_device_id.setStyleSheet("color:#6b7280;font-size:10px;")
+        sl.addRow("ID urządzenia:", self.sync_device_id)
+
+        sync_note = QLabel(
+            "Serwer sync możesz uruchomić samodzielnie za pomocą Docker:\n"
+            "  cd sync_server && cp .env.example .env\n"
+            "  (edytuj .env – ustaw API_KEY)\n"
+            "  docker-compose up -d\n\n"
+            "Wszystkie komputery muszą mieć ten sam URL i klucz API."
+        )
+        sync_note.setStyleSheet("color:#6b7280;font-size:11px;font-family:Consolas,monospace;")
+        sl.addRow("", sync_note)
+
+        test_sync_btn = QPushButton("Testuj połączenie")
+        test_sync_btn.clicked.connect(self._test_sync)
+        sl.addRow("", test_sync_btn)
+
+        tabs.addTab(sync_tab, "Synchronizacja")
         layout.addWidget(tabs)
 
         btns = QDialogButtonBox(
@@ -168,6 +218,13 @@ class SettingsDialog(QDialog):
         self.email_pass.setText(ec.get("password", ""))
         self.email_folder.setText(ec.get("folder", "INBOX"))
         self.auto_fetch.setValue(ec.get("auto_fetch_minutes", 5))
+
+        sc = self._cfg.get("sync", {})
+        self.sync_enabled.setChecked(sc.get("enabled", False))
+        self.sync_url.setText(sc.get("server_url", ""))
+        self.sync_key.setText(sc.get("api_key", ""))
+        self.sync_interval.setValue(sc.get("auto_sync_minutes", 5))
+        self.sync_device_id.setText(sc.get("device_id", "(zostanie nadane przy pierwszym sync)"))
 
         ac = self._cfg.get("ai", {})
         idx = self.ai_provider.findText(ac.get("provider", PROVIDERS[0]))
@@ -208,6 +265,13 @@ class SettingsDialog(QDialog):
             "dsn": self.wh_dsn.text().strip(),
             "username": self.wh_user.text().strip(),
             "password": self.wh_pass.text(),
+        }
+        self._cfg["sync"] = {
+            "enabled":           self.sync_enabled.isChecked(),
+            "server_url":        self.sync_url.text().strip().rstrip("/"),
+            "api_key":           self.sync_key.text().strip(),
+            "device_id":         self._cfg.get("sync", {}).get("device_id", ""),
+            "auto_sync_minutes": self.sync_interval.value(),
         }
         self._cfg["ai"] = {
             "provider": self.ai_provider.currentText(),
@@ -334,6 +398,18 @@ class SettingsDialog(QDialog):
             QMessageBox.information(self, "AI Agent", f"Połączono!\nOdpowiedź: {resp}")
         except Exception as e:
             QMessageBox.critical(self, "Błąd AI", str(e))
+
+    def _test_sync(self):
+        url = self.sync_url.text().strip().rstrip("/")
+        key = self.sync_key.text().strip()
+        if not url or not key:
+            QMessageBox.warning(self, "Brak danych", "Uzupełnij URL serwera i klucz API.")
+            return
+        ok, msg = sync_svc.test_connection(url, key)
+        if ok:
+            QMessageBox.information(self, "Synchronizacja", msg)
+        else:
+            QMessageBox.critical(self, "Błąd synchronizacji", msg)
 
     def get_config(self) -> dict:
         return self._cfg
