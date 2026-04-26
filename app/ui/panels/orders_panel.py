@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QDate
 from PyQt6.QtGui import QColor, QFont
+from typing import Optional
 import app.services.order_service as order_svc
 import app.services.client_service as client_svc
 import app.services.checklist_service as chk_svc
@@ -21,7 +22,7 @@ class ChecklistWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._order_id: int | None = None
+        self._order_id: Optional[int] = None
         self._status: str = ""
         self._setup_ui()
 
@@ -67,7 +68,7 @@ class ChecklistWidget(QWidget):
         layout.addWidget(self.empty_lbl)
         self.empty_lbl.hide()
 
-    def load(self, order_id: int | None, status: str):
+    def load(self, order_id: Optional[int], status: str):
         self._order_id = order_id
         self._status = status
         self._refresh()
