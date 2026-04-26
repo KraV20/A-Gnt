@@ -234,9 +234,12 @@ class EmailPanel(QWidget):
         self.fetch_btn.setText("Pobierz maile")
         self._load_emails()
         if errors:
-            self.status_label.setText("Błąd połączenia z serwerem IMAP. Sprawdź ustawienia.")
+            err = email_svc.get_last_error()
+            self.status_label.setText(f"Błąd IMAP: {err}")
+            self.status_label.setStyleSheet("color:#dc2626;font-size:11px;")
         else:
             self.status_label.setText(f"Pobrano {new_count} nowych wiadomości.")
+            self.status_label.setStyleSheet("color:#16a34a;font-size:11px;")
 
     def _setup_auto_fetch(self):
         if not hasattr(self, "_timer"):

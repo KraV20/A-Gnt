@@ -4,6 +4,7 @@ import email.header
 import email.utils
 import re
 import hashlib
+import base64
 from typing import List, Optional, Tuple
 from datetime import datetime
 from app.database.connection import get_conn
@@ -74,15 +75,61 @@ def _get_attachments(msg, email_id: int) -> List[EmailAttachment]:
     return attachments
 
 
+def _imap_login(imap, username: str, password: str) -> None:
+    """Login to IMAP, falling back to AUTHENTICATE PLAIN if LOGIN is rejected.
+
+    Some servers (or some passwords with special chars) require AUTHENTICATE
+    PLAIN instead of plain-text LOGIN. We try LOGIN first (most compatible)
+    and on failure fall back.
+    """
+    try:
+        imap.login(username, password)
+        return
+    except imaplib.IMAP4.error as exc:
+        first_err = str(exc)
+
+    # Fallback: AUTHENTICATE PLAIN  (\0user\0pass base64-encoded)
+    try:
+        auth_str = f"\0{username}\0{password}"
+        imap.authenticate("PLAIN", lambda _: auth_str.encode("utf-8"))
+        return
+    except imaplib.IMAP4.error as exc2:
+        raise imaplib.IMAP4.error(
+            f"LOGIN: {first_err} | AUTHENTICATE PLAIN: {exc2}"
+        )
+
+
+def test_connection(cfg: dict) -> Tuple[bool, str]:
+    """Test IMAP connection. Returns (ok, message)."""
+    try:
+        if cfg.get("imap_ssl", True):
+            imap = imaplib.IMAP4_SSL(cfg["imap_host"], cfg.get("imap_port", 993))
+        else:
+            imap = imaplib.IMAP4(cfg["imap_host"], cfg.get("imap_port", 143))
+        _imap_login(imap, cfg["username"], cfg["password"])
+        imap.select(cfg.get("folder", "INBOX"))
+        imap.logout()
+        return True, "Połączenie i logowanie OK"
+    except imaplib.IMAP4.error as e:
+        return False, f"Błąd IMAP: {e}"
+    except Exception as e:
+        return False, f"Błąd połączenia: {e}"
+
+
 def fetch_emails(cfg: dict, limit: int = 50) -> Tuple[int, int]:
-    """Connect via IMAP and fetch new emails. Returns (new_count, error_count)."""
+    """Connect via IMAP and fetch new emails. Returns (new_count, error_count).
+
+    On error, the message is stored in module-level _LAST_ERROR for UI display.
+    """
+    global _LAST_ERROR
+    _LAST_ERROR = ""
     new_count = 0
     try:
         if cfg.get("imap_ssl", True):
             imap = imaplib.IMAP4_SSL(cfg["imap_host"], cfg.get("imap_port", 993))
         else:
             imap = imaplib.IMAP4(cfg["imap_host"], cfg.get("imap_port", 143))
-        imap.login(cfg["username"], cfg["password"])
+        _imap_login(imap, cfg["username"], cfg["password"])
         folder = cfg.get("folder", "INBOX")
         imap.select(folder)
 
@@ -139,9 +186,17 @@ def fetch_emails(cfg: dict, limit: int = 50) -> Tuple[int, int]:
 
         imap.logout()
     except Exception as exc:
+        _LAST_ERROR = f"{type(exc).__name__}: {exc}"
         return new_count, 1
 
     return new_count, 0
+
+
+def get_last_error() -> str:
+    return _LAST_ERROR
+
+
+_LAST_ERROR = ""
 
 
 def get_all(unread_only: bool = False, client_id: int = None) -> List[EmailMessage]:

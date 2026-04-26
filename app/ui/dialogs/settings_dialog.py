@@ -211,25 +211,35 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def _test_imap(self):
-        import imaplib
+        import app.services.email_service as email_svc
         host = self.imap_host.text().strip()
-        port = self.imap_port.value()
-        ssl = self.imap_ssl.isChecked()
         user = self.email_user.text().strip()
-        pwd = self.email_pass.text()
         if not host or not user:
             QMessageBox.warning(self, "Błąd", "Uzupełnij host i użytkownika.")
             return
-        try:
-            if ssl:
-                imap = imaplib.IMAP4_SSL(host, port)
-            else:
-                imap = imaplib.IMAP4(host, port)
-            imap.login(user, pwd)
-            imap.logout()
-            QMessageBox.information(self, "IMAP", "Połączono i zalogowano pomyślnie!")
-        except Exception as e:
-            QMessageBox.critical(self, "Błąd IMAP", str(e))
+        cfg = {
+            "imap_host": host,
+            "imap_port": self.imap_port.value(),
+            "imap_ssl": self.imap_ssl.isChecked(),
+            "username": user,
+            "password": self.email_pass.text(),
+            "folder": self.email_folder.text().strip() or "INBOX",
+        }
+        ok, msg = email_svc.test_connection(cfg)
+        if ok:
+            QMessageBox.information(self, "IMAP", msg)
+        else:
+            hint = ""
+            low = msg.lower()
+            if "login" in low and ("bad" in low or "failed" in low or "invalid" in low):
+                hint = (
+                    "\n\nMożliwe przyczyny:\n"
+                    "• Gmail / Outlook 365 wymagają hasła aplikacji (nie zwykłego hasła konta)\n"
+                    "• Hasło zawiera znaki specjalne – sprawdź, czy nie ma spacji na końcu\n"
+                    "• Konto wymaga 2FA + tokenu aplikacji\n"
+                    "• Niektóre serwery (np. wp.pl) wymagają loginu BEZ @domena"
+                )
+            QMessageBox.critical(self, "Błąd IMAP", msg + hint)
 
     def _test_whokna(self):
         cfg = {
