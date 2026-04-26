@@ -35,7 +35,18 @@ class EmailMessage:
     def from_row(cls, row) -> "EmailMessage":
         d = dict(row)
         known = {f for f in cls.__dataclass_fields__ if f != "attachments"}
-        obj = cls(**{k: (d[k] if d.get(k) is not None else "") for k in known if k in d})
+        # int? fields must stay None, not become ""
+        nullable_int = {"id", "client_id", "order_id"}
+        kwargs = {}
+        for k in known:
+            if k not in d:
+                continue
+            v = d[k]
+            if k in nullable_int:
+                kwargs[k] = v  # keep None as-is
+            else:
+                kwargs[k] = v if v is not None else ""
+        obj = cls(**kwargs)
         obj.is_read = bool(d.get("is_read", 0))
         obj.is_flagged = bool(d.get("is_flagged", 0))
         return obj

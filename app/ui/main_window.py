@@ -169,6 +169,7 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             self._cfg = dlg.get_config()
             self._email_panel.cfg = self._cfg
+            self._email_panel.refresh()
             self._whokna_panel.refresh(self._cfg)
             self._ai_panel.refresh(self._cfg)
             self.statusBar().showMessage("Ustawienia zapisane.", 3000)

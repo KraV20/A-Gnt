@@ -202,6 +202,11 @@ class EmailPanel(QWidget):
                 self.client_combo.setCurrentIndex(i)
                 break
 
+        for i in range(self.order_combo.count()):
+            if self.order_combo.itemData(i) == full.order_id:
+                self.order_combo.setCurrentIndex(i)
+                break
+
         self._load_emails()
 
     def _assign(self):
@@ -234,10 +239,12 @@ class EmailPanel(QWidget):
             self.status_label.setText(f"Pobrano {new_count} nowych wiadomości.")
 
     def _setup_auto_fetch(self):
-        minutes = self.cfg.get("email", {}).get("auto_fetch_minutes", 5)
-        if minutes > 0:
+        if not hasattr(self, "_timer"):
             self._timer = QTimer(self)
             self._timer.timeout.connect(self._fetch_emails)
+        self._timer.stop()
+        minutes = self.cfg.get("email", {}).get("auto_fetch_minutes", 5)
+        if minutes > 0:
             self._timer.start(minutes * 60 * 1000)
 
     def _context_menu(self, pos: QPoint):
@@ -257,3 +264,4 @@ class EmailPanel(QWidget):
     def refresh(self):
         self._populate_combos()
         self._load_emails()
+        self._setup_auto_fetch()
