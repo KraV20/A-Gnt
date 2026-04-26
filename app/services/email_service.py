@@ -80,22 +80,33 @@ def _imap_login(imap, username: str, password: str) -> None:
 
     Some servers (or some passwords with special chars) require AUTHENTICATE
     PLAIN instead of plain-text LOGIN. We try LOGIN first (most compatible)
-    and on failure fall back.
+    and on failure fall back. If both fail, prefer the AUTHENTICATIONFAILED
+    message (real credentials answer) over a LOGIN protocol error.
     """
+    if not username or not password:
+        raise imaplib.IMAP4.error(
+            "Brakuje nazwy użytkownika lub hasła"
+        )
+
+    login_err = None
     try:
         imap.login(username, password)
         return
     except imaplib.IMAP4.error as exc:
-        first_err = str(exc)
+        login_err = str(exc)
 
-    # Fallback: AUTHENTICATE PLAIN  (\0user\0pass base64-encoded)
     try:
         auth_str = f"\0{username}\0{password}"
         imap.authenticate("PLAIN", lambda _: auth_str.encode("utf-8"))
         return
     except imaplib.IMAP4.error as exc2:
+        plain_err = str(exc2)
+        if "AUTHENTICATIONFAILED" in plain_err.upper() or "authentication fail" in plain_err.lower():
+            raise imaplib.IMAP4.error(
+                f"Błędne dane logowania (serwer odrzucił hasło): {plain_err}"
+            )
         raise imaplib.IMAP4.error(
-            f"LOGIN: {first_err} | AUTHENTICATE PLAIN: {exc2}"
+            f"LOGIN: {login_err} | AUTHENTICATE PLAIN: {plain_err}"
         )
 
 

@@ -41,6 +41,12 @@ class SettingsDialog(QDialog):
         self.email_user.setPlaceholderText("adres@domena.pl")
         self.email_pass = QLineEdit()
         self.email_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self.show_pass_cb = QCheckBox("Pokaż hasło")
+        self.show_pass_cb.toggled.connect(
+            lambda c: self.email_pass.setEchoMode(
+                QLineEdit.EchoMode.Normal if c else QLineEdit.EchoMode.Password
+            )
+        )
         self.email_folder = QLineEdit()
         self.email_folder.setText("INBOX")
         self.auto_fetch = QSpinBox()
@@ -55,6 +61,7 @@ class SettingsDialog(QDialog):
         el.addRow("Port SMTP:", self.smtp_port)
         el.addRow("Użytkownik:", self.email_user)
         el.addRow("Hasło:", self.email_pass)
+        el.addRow("", self.show_pass_cb)
         el.addRow("Folder:", self.email_folder)
         el.addRow("Autoodświeżanie:", self.auto_fetch)
 
@@ -229,17 +236,63 @@ class SettingsDialog(QDialog):
         if ok:
             QMessageBox.information(self, "IMAP", msg)
         else:
-            hint = ""
-            low = msg.lower()
-            if "login" in low and ("bad" in low or "failed" in low or "invalid" in low):
-                hint = (
-                    "\n\nMożliwe przyczyny:\n"
-                    "• Gmail / Outlook 365 wymagają hasła aplikacji (nie zwykłego hasła konta)\n"
-                    "• Hasło zawiera znaki specjalne – sprawdź, czy nie ma spacji na końcu\n"
-                    "• Konto wymaga 2FA + tokenu aplikacji\n"
-                    "• Niektóre serwery (np. wp.pl) wymagają loginu BEZ @domena"
-                )
-            QMessageBox.critical(self, "Błąd IMAP", msg + hint)
+            QMessageBox.critical(self, "Błąd IMAP", msg + self._imap_hint(host, msg, user))
+
+    def _imap_hint(self, host: str, error_msg: str, user: str) -> str:
+        h = host.lower()
+        low = error_msg.lower()
+        is_auth = (
+            "authenticationfailed" in low
+            or "błędne dane" in low
+            or "authentication fail" in low
+            or "invalid credentials" in low
+        )
+
+        if "gmail.com" in h or "googlemail" in h:
+            return (
+                "\n\n→ Gmail wymaga **hasła aplikacji**:\n"
+                "1. Włącz 2FA na koncie Google\n"
+                "2. Wejdź: myaccount.google.com → Bezpieczeństwo → Hasła do aplikacji\n"
+                "3. Wygeneruj 16-znakowe hasło i wpisz je TUTAJ (zamiast normalnego hasła)\n"
+                "4. Włącz IMAP w ustawieniach Gmaila"
+            )
+        if "outlook" in h or "office365" in h or "hotmail" in h or "live.com" in h:
+            return (
+                "\n\n→ Outlook / Office 365 wymaga **hasła aplikacji** lub OAuth2:\n"
+                "1. Włącz 2FA: account.microsoft.com → Zabezpieczenia\n"
+                "2. Utwórz hasło aplikacji i wpisz je TUTAJ\n"
+                "3. Sprawdź czy IMAP jest włączony w portal.office.com"
+            )
+        if "wp.pl" in h or "o2.pl" in h or "interia.pl" in h:
+            hint = "\n\n→ Polskie portale (wp/o2/interia):\n"
+            if "@" in user:
+                hint += "• SPRÓBUJ loginu BEZ @domena (sam nick)\n"
+            hint += (
+                "• Włącz IMAP w ustawieniach poczty na stronie portalu\n"
+                "• wp.pl często wymaga osobnego hasła do aplikacji POP3/IMAP"
+            )
+            return hint
+        if "icloud" in h or "me.com" in h:
+            return (
+                "\n\n→ iCloud wymaga **hasła specyficznego dla aplikacji**:\n"
+                "1. appleid.apple.com → Logowanie i bezpieczeństwo\n"
+                "2. Hasła specyficzne dla aplikacji → Wygeneruj"
+            )
+
+        if is_auth:
+            return (
+                "\n\nSerwer odrzucił hasło. Sprawdź:\n"
+                "• Czy hasło nie ma spacji na końcu / początku\n"
+                "• Czy CapsLock jest wyłączony (zaznacz Pokaż hasło)\n"
+                "• Czy konto nie wymaga hasła aplikacji (Gmail/Outlook/iCloud)\n"
+                "• Czy login jest w pełnej formie (np. user@domena.pl)"
+            )
+        return (
+            "\n\nMożliwe przyczyny:\n"
+            "• Złe hasło lub login\n"
+            "• Serwer wymaga hasła aplikacji (Gmail/Outlook/iCloud)\n"
+            "• IMAP jest wyłączony na koncie"
+        )
 
     def _test_whokna(self):
         cfg = {
